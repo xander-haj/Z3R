@@ -20,4 +20,4 @@ Original snesrev repo that has been fully commented, the base for this new repo:
 
 ## Compromises
 
-- when re-arrange HUD is enabled, the Magic Meter uses the same base outline for botht he base and powered up state, this is because the `2` in the 1/2 above the bar sahres a sprite tile with the left corner of the item box, will hopefully fix to use proper fixed graphic soon
+- when re-arrange HUD is enabled, the Magic Meter uses the same base outline for both the base and powered up state, this is because the `2` in the 1/2 above the bar shares a sprite tile with the left corner of the item box, will hopefully fix to use proper fixed graphic soon
