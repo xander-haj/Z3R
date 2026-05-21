@@ -12,7 +12,7 @@ Original snesrev repo that has been fully commented, the base for this new repo:
     
 - fixed windscreen mode
 
-- can now re-arrange the in game HUD while `ExtendedAspectRatio` is hiher than 4:3, allowing HUD elements to be placed anywhere
+- can now re-arrange the in game HUD while `ExtendedAspectRatio` is higher than 4:3, allowing HUD elements to be placed anywhere
 
 - Y,X,L,R Buttons now have individual Item Boxes in the HUD with button labels applied
 
