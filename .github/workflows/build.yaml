@@ -1,37 +1,87 @@
-name: Build
+name: Release
 
 on:
   push:
-    branches:
-    - master
-  pull_request:
+    tags:
+      - 'v*'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
-  build-unix:
-    name: on ${{ matrix.name }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-        - name: Linux
-          os: ubuntu-latest
-        - name: Mac
-          os: macos-latest
+  build-linux:
+    name: Build Linux
+    runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-python@v4
-      with:
-        python-version: '3.10'
-    - name: Install dependencies for Linux
-      if: ${{ matrix.name == 'Linux' }}
-      run: |
-        sudo apt update
-        sudo apt install -y libsdl2-dev
-    - name: Install dependencies for Mac
-      if: ${{ matrix.name == 'Mac' }}
-      run: |
-        brew install sdl2 coreutils
-    - name: Build
-      run: make -j$(nproc) zelda3
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsdl2-dev
+      - name: Build
+        run: make -j$(nproc) zelda3
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp zelda3 dist/
+          cp zelda3.ini readme.md LICENSE.txt dist/
+          tar -czvf zelda3-${{ github.ref_name }}-linux-x64.tar.gz -C dist .
+      - name: Upload to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: zelda3-${{ github.ref_name }}-linux-x64.tar.gz
+
+  build-macos:
+    name: Build macOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: brew install sdl2
+      - name: Build
+        run: make -j$(sysctl -n hw.ncpu) zelda3
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp zelda3 dist/
+          cp zelda3.ini readme.md LICENSE.txt dist/
+          tar -czvf zelda3-${{ github.ref_name }}-macos.tar.gz -C dist .
+      - name: Upload to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: zelda3-${{ github.ref_name }}-macos.tar.gz
+
+  build-windows:
+    name: Build Windows
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            make
+            zip
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-SDL2
+            mingw-w64-x86_64-pkg-config
+      - name: Build
+        run: make -j$(nproc) zelda3
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp zelda3.exe dist/
+          cp zelda3.ini readme.md LICENSE.txt dist/
+          cd dist && zip -r ../zelda3-${{ github.ref_name }}-windows-x64.zip .
+      - name: Upload to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: zelda3-${{ github.ref_name }}-windows-x64.zip
