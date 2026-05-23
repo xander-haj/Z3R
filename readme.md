@@ -12,7 +12,7 @@ Original snesrev repo that has been fully commented, the base for this new repo:
     
 - fixed windscreen mode
 
-- can now re-arrange the in game HUD while `ExtendedAspectRatio` is hiher than 4:3, allowing HUD elements to be placed anywhere
+- can now re-arrange the in game HUD while `ExtendedAspectRatio` is higher than 4:3, allowing HUD elements to be placed anywhere
 
 - Y,X,L,R Buttons now have individual Item Boxes in the HUD with button labels applied
 
@@ -20,4 +20,4 @@ Original snesrev repo that has been fully commented, the base for this new repo:
 
 ## Compromises
 
-- when re-arrange HUD is enabled, the Magic Meter uses the same base outline for botht he base and powered up state, this is because the `2` in the 1/2 above the bar sahres a sprite tile with the left corner of the item box, will hopefully fix to use proper fixed graphic soon
+- when re-arrange HUD is enabled, the Magic Meter uses the same base outline for both the base and powered up state, this is because the `2` in the 1/2 above the bar shares a sprite tile with the left corner of the item box, will hopefully fix to use proper fixed graphic soon
