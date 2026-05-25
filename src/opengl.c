@@ -22,6 +22,7 @@
 #include <SDL.h>
 #include <stdio.h>
 #include <stdbool.h>
+#include <string.h>
 // Project-wide fixed-width integer typedefs (uint8, uint16, etc.)
 #include "types.h"
 // Utility functions including Die() for fatal error reporting

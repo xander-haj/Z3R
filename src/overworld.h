@@ -144,6 +144,7 @@ void Module09_00_PlayerControl();
 void OverworldHandleTransitions();
 // Loads tileset graphics and computes screen size for the destination area
 void Overworld_LoadGFXAndScreenSize();
+void Overworld_SetMap16LoadOffsetToCamera();
 // Scrolls the camera and checks for special overworld exit conditions
 void ScrollAndCheckForSOWExit();
 // Loads auxiliary graphics during an overworld transition

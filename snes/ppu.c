@@ -172,6 +172,7 @@ enum {
   kWindow2Enabled = 8,   // Window 2 is active for this layer
 };
 
+
 /*
  * ppu_init — Allocate a Ppu instance. Note that the struct is NOT zeroed
  * here; the caller is expected to follow up with ppu_reset() which clears

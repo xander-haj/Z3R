@@ -49,7 +49,7 @@ Snes* snes_init(uint8_t *ram) {
   snes->cpu = cpu_init(snes, 0);
   snes->apu = apu_init();
   snes->dma = dma_init(snes);
-  snes->ppu = ppu_init();
+  snes->ppu = ppu_init(snes);
   snes->cart = cart_init(snes);
   snes->input1 = input_init(snes);
   snes->input2 = input_init(snes);

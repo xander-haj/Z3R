@@ -9,6 +9,7 @@
 #include "misc.h"
 #include "messaging.h"
 #include "player_oam.h"
+#include "config.h"
 #include "snes/snes_regs.h"
 #include "assets.h"
 
@@ -252,15 +253,15 @@ static bool Overworld_ShouldUseOpenWorldTransitions() {
   return (enhanced_features0 & (kFeatures0_ExtendScreen64 | kFeatures0_WidescreenVisualFixes)) != 0;
 }
 
-/* Return true only for edge-scroll routes that can safely skip their visible
- * scroll frames. Mosaic routes must keep their fade-back submodules because
- * they force-blank the display before loading the destination area. */
-static bool Overworld_ShouldFinishScrollTransitionInstantly() {
-  return Overworld_ShouldUseOpenWorldTransitions() && submodule_index != 18;
-}
-
 static void Overworld_FinishScrollTransitionInstantly();
 static void Overworld_FinishInstantSpriteGfxUpload();
+static void Overworld_ApplyPendingOWScrollUpload();
+static void Overworld_CancelPendingWideScrollStripe();
+static void Overworld_SetMap16LoadOffsetToWideCamera();
+static void Overworld_PrimeWideScreenTilemap();
+static void Overworld_RefreshWideCameraTilemap();
+static void Overworld_BuildWideScreenTilemap(bool redraw_screen);
+static void Overworld_CopyPreparedTilemapToVram();
 static void Overworld_RebuildScreenForInstantTransition();
 /* GetMap8toTileAttr / GetMap16toMap8Table — Trivial accessors that
  * expose the compiled-in conversion tables. Encapsulated as functions
@@ -1056,6 +1057,8 @@ void Module09_00_PlayerControl() {  // 82a53c
   } else {
     ScrollAndCheckForSOWExit();
   }
+  if (submodule_index == 0)
+    Overworld_RefreshWideCameraTilemap();
 }
 
 /*
@@ -1178,6 +1181,63 @@ void Overworld_LoadGFXAndScreenSize() {  // 82ab08
   overworld_offset_mask_x = m >> 3;
 }
 
+void Overworld_SetMap16LoadOffsetToCamera() {
+  if (kOverworldMapIsSmall[BYTE(overworld_screen_index)]) {
+    map16_load_src_off = 0x390;
+  } else {
+    int i = overworld_screen_index & 0xbf;
+    uint16 y = (BG2VOFS_copy2 - kOverworld_OffsetBaseY[i]) & 0x3f0;
+    uint16 x = ((BG2HOFS_copy2 >> 3) - (kOverworld_OffsetBaseX[i] >> 3)) & 0x7e;
+    map16_load_src_off = ((y << 3) + x + 0x390) & 0x1fff;
+  }
+  map16_load_var2 = (map16_load_src_off - 0x400 & 0xf80) >> 7;
+  map16_load_dst_off = (map16_load_src_off - 0x10 & 0x3e) >> 1;
+}
+
+static bool Overworld_GetWidescreenSideSpace(int *extra_left_out, int *extra_right_out) {
+  if (extra_left_out)
+    *extra_left_out = 0;
+  if (extra_right_out)
+    *extra_right_out = 0;
+  if (!(enhanced_features0 & (kFeatures0_ExtendScreen64 | kFeatures0_WidescreenVisualFixes)) ||
+      g_config.extended_aspect_ratio == 0 ||
+      kOverworldMapIsSmall[BYTE(overworld_screen_index)])
+    return false;
+
+  int target_extra = g_config.extended_aspect_ratio;
+  int avail_left = IntMax(BG2HOFS_copy2 - ow_scroll_vars0.xstart, 0);
+  int avail_right = IntMax(ow_scroll_vars0.xend - BG2HOFS_copy2, 0);
+  int wanted_total = target_extra * 2;
+  int extra_left = IntMin(avail_left, target_extra);
+  int extra_right = IntMin(avail_right, wanted_total - extra_left);
+  extra_left = IntMin(avail_left, wanted_total - extra_right);
+  if (extra_left_out)
+    *extra_left_out = extra_left;
+  if (extra_right_out)
+    *extra_right_out = extra_right;
+  return extra_left != 0 || extra_right != 0;
+}
+
+static int Overworld_GetWidescreenExtraLeft() {
+  int extra_left;
+  Overworld_GetWidescreenSideSpace(&extra_left, NULL);
+  return extra_left;
+}
+
+static void Overworld_SetMap16LoadOffsetToWideCamera() {
+  if (kOverworldMapIsSmall[BYTE(overworld_screen_index)]) {
+    map16_load_src_off = 0x390;
+  } else {
+    int i = overworld_screen_index & 0xbf;
+    uint16 x_origin = BG2HOFS_copy2 - Overworld_GetWidescreenExtraLeft();
+    uint16 y = (BG2VOFS_copy2 - kOverworld_OffsetBaseY[i]) & 0x3f0;
+    uint16 x = ((x_origin >> 3) - (kOverworld_OffsetBaseX[i] >> 3)) & 0x7e;
+    map16_load_src_off = ((y << 3) + x + 0x390) & 0x1fff;
+  }
+  map16_load_var2 = (map16_load_src_off - 0x400 & 0xf80) >> 7;
+  map16_load_dst_off = (map16_load_src_off - 0x10 & 0x3e) >> 1;
+}
+
 /*
  * ScrollAndCheckForSOWExit — Continues any in-progress map scroll,
  * then probes the map16 tile under Link against three special-area
@@ -1240,6 +1300,7 @@ void Module09_LoadNewMapAndGFX() {  // 82abc6
   word_7E04C8 = 0;
   SomeTileMapChange();
   nmi_disable_core_updates++;
+  Overworld_SetMap16LoadOffsetToWideCamera();
   CreateInitialNewScreenMapToScroll();
   LoadNewSpriteGFXSet();
 }
@@ -1282,7 +1343,7 @@ void Module09_LoadNewSprites() {  // 82abed
   num_memorized_tiles = 0;
   if (sram_progress_indicator >= 2 && submodule_index != 18)
     Overworld_SetFixedColAndScroll();
-  if (Overworld_ShouldFinishScrollTransitionInstantly()) {
+  if (Overworld_ShouldUseOpenWorldTransitions() && submodule_index != 18) {
     Overworld_FinishScrollTransitionInstantly();
     return;
   }
@@ -1303,6 +1364,7 @@ static void Overworld_FinishScrollTransitionInstantly() {
     if (!(rv & 0xf)) {
       BYTE(overworld_screen_trans_dir_bits2) = dir;
       OverworldTransitionScrollAndLoadMap();
+      Overworld_ApplyPendingOWScrollUpload();
       BYTE(overworld_screen_trans_dir_bits2) = 0;
     }
   }
@@ -1312,6 +1374,7 @@ static void Overworld_FinishScrollTransitionInstantly() {
   if (kOverworldMapIsSmall[BYTE(overworld_screen_index)]) {
     BYTE(overworld_screen_trans_dir_bits2) = dir;
     OverworldTransitionScrollAndLoadMap();
+    Overworld_ApplyPendingOWScrollUpload();
     BYTE(overworld_screen_trans_dir_bits2) = 0;
     map16_load_src_off = orange_blue_barrier_state;
     map16_load_dst_off = word_7EC174;
@@ -1341,6 +1404,7 @@ static void Overworld_FinishScrollTransitionInstantly() {
     music_control = m & 0xf;
   Overworld_FinishInstantSpriteGfxUpload();
   Overworld_OperateCameraScroll();
+  Overworld_SetFixedColAndScroll();
   Sprite_ReloadAll_Overworld();
   num_memorized_tiles = 0;
   Overworld_RebuildScreenForInstantTransition();
@@ -1359,6 +1423,108 @@ static void Overworld_FinishInstantSpriteGfxUpload() {
   nmi_update_tilemap_src = 0;
 }
 
+static void Overworld_ApplyPendingOWScrollUpload() {
+  if (nmi_subroutine_index != 3)
+    return;
+
+  uint8 *src = (uint8 *)uvram.data;
+  int f = WORD(src[0]);
+  int step = (f & 0x8000) ? 32 : 1;
+  int len = f & 0x3fff;
+  src += 2;
+  do {
+    uint16 *dst = &g_zenv.vram[WORD(src[0])];
+    src += 2;
+    for (int i = 0, i_end = len >> 1; i < i_end; i++, dst += step, src += 2)
+      *dst = WORD(*src);
+  } while (!(src[1] & 0x80));
+  nmi_subroutine_index = 0;
+  nmi_disable_core_updates = 0;
+}
+
+static void Overworld_CancelPendingWideScrollStripe() {
+  if (nmi_subroutine_index == 3)
+    nmi_subroutine_index = 0;
+}
+
+static void Overworld_PrimeWideScreenTilemap() {
+  if (!Overworld_GetWidescreenSideSpace(NULL, NULL))
+    return;
+
+  Overworld_BuildWideScreenTilemap(true);
+  nmi_subroutine_index = 4;
+  nmi_disable_core_updates = 4;
+}
+
+static void Overworld_BuildWideScreenTilemap(bool redraw_screen) {
+  uint16 bak1 = map16_load_src_off;
+  uint16 bak2 = map16_load_dst_off;
+  uint16 bak3 = map16_load_var2;
+
+  if (redraw_screen)
+    Overworld_DrawQuadrantsAndOverlays();
+  Overworld_SetMap16LoadOffsetToWideCamera();
+  Map16ToMap8(&g_ram[0x2000], 0);
+
+  if (kOverworldMapIsSmall[BYTE(overworld_screen_index)]) {
+    map16_load_var2 = bak3;
+    map16_load_dst_off = bak2;
+    map16_load_src_off = bak1;
+  } else {
+    Overworld_SetMap16LoadOffsetToWideCamera();
+  }
+}
+
+static void Overworld_CopyPreparedTilemapToVram() {
+  const uint8 *src = dung_bg2_attr_table;
+  uint16 *dst_table = &word_7F4000;
+
+  for (int i = 0; i < 0x80; i += 2, src += 0x80)
+    memcpy(&g_zenv.vram[dst_table[i >> 1]], src, 0x80);
+}
+
+static void Overworld_RefreshWideCameraTilemap() {
+  static uint16 last_x_origin, last_y_origin;
+  static uint8 last_screen;
+  static int last_extra_left, last_extra_right;
+  static bool last_origin_valid;
+
+  int extra_left, extra_right;
+  if (!Overworld_GetWidescreenSideSpace(&extra_left, &extra_right)) {
+    last_origin_valid = false;
+    return;
+  }
+
+  int area = overworld_screen_index & 0xbf;
+  uint16 x_origin = ((BG2HOFS_copy2 - extra_left) >> 4) - (kOverworld_OffsetBaseX[area] >> 4);
+  uint16 y_origin = ((BG2VOFS_copy2 - kOverworld_OffsetBaseY[area]) & 0x3f0) >> 4;
+  if (last_origin_valid &&
+      last_screen == BYTE(overworld_screen_index) &&
+      last_extra_left == extra_left &&
+      last_extra_right == extra_right &&
+      last_x_origin == x_origin &&
+      last_y_origin == y_origin) {
+    /* 16:9 uses a 71px side extension, so the vanilla 4:3 scroll stripe can
+     * be queued on frames where the wide-origin tilemap itself does not need
+     * rebuilding.  Suppress that stale stripe here too, or it can flash into
+     * a widened edge until the next wide rebuild phase. */
+    Overworld_CancelPendingWideScrollStripe();
+    return;
+  }
+
+  Overworld_BuildWideScreenTilemap(false);
+  Overworld_CopyPreparedTilemapToVram();
+  /* The full wide-origin copy supersedes any 4:3 scroll stripe packet that
+   * the vanilla streamer queued earlier in this same game tick. */
+  Overworld_CancelPendingWideScrollStripe();
+  last_origin_valid = true;
+  last_screen = BYTE(overworld_screen_index);
+  last_extra_left = extra_left;
+  last_extra_right = extra_right;
+  last_x_origin = x_origin;
+  last_y_origin = y_origin;
+}
+
 /* Rebuild the full destination BG map after an instant transition.  The
  * vanilla scroll path uploads revealed stripes over several frames; skipping
  * those frames leaves stale VRAM until another full redraw, such as opening the
@@ -1368,19 +1534,19 @@ static void Overworld_RebuildScreenForInstantTransition() {
   uint16 bak1 = map16_load_src_off;
   uint16 bak2 = map16_load_dst_off;
   uint16 bak3 = map16_load_var2;
-
-  if (kOverworldMapIsSmall[BYTE(overworld_screen_index)]) {
-    map16_load_src_off = 0x390;
-    map16_load_var2 = (0x390 - 0x400 & 0xf80) >> 7;
-    map16_load_dst_off = (0x390 - 0x10 & 0x3e) >> 1;
-  }
+  bool small_map = kOverworldMapIsSmall[BYTE(overworld_screen_index)];
 
   Overworld_DrawQuadrantsAndOverlays();
+  Overworld_SetMap16LoadOffsetToWideCamera();
   Map16ToMap8(&g_ram[0x2000], 0);
 
-  map16_load_var2 = bak3;
-  map16_load_dst_off = bak2;
-  map16_load_src_off = bak1;
+  if (small_map) {
+    map16_load_var2 = bak3;
+    map16_load_dst_off = bak2;
+    map16_load_src_off = bak1;
+  } else {
+    Overworld_SetMap16LoadOffsetToWideCamera();
+  }
   nmi_subroutine_index = 4;
   nmi_disable_core_updates = 4;
 }
@@ -1450,6 +1616,7 @@ void Module09_0A_WalkFromExiting_FacingDown() {  // 82ac8f
   Overworld_OperateCameraScroll();
   if (BYTE(overworld_screen_trans_dir_bits2))
     OverworldHandleMapScroll();
+  Overworld_PrimeWideScreenTilemap();
 }
 
 /*
@@ -1463,6 +1630,7 @@ void Module09_0B_WalkFromExiting_FacingUp() {  // 82acc2
   if (--ow_countdown_transition)
     return;
   submodule_index = 0;
+  Overworld_PrimeWideScreenTilemap();
 }
 
 /*
@@ -2431,6 +2599,7 @@ void Overworld_FinalizeEntryOntoScreen() {  // 82c242
     link_x_coord = (d += link_x_coord);
   else
     link_y_coord = (d += link_y_coord);
+  bool finished = false;
   if ((d & 0xfe) == kOverworld_Func8_tab[byte_7E069C]) {
     submodule_index = 0;
     subsubmodule_index = 0;
@@ -2438,10 +2607,13 @@ void Overworld_FinalizeEntryOntoScreen() {  // 82c242
     sound_effect_ambient = m >> 4;
     if (music_unk1 == 0xf1)
       music_control = m & 0xf;
+    finished = true;
   }
   Overworld_OperateCameraScroll();
   if (BYTE(overworld_screen_trans_dir_bits2))
     OverworldHandleMapScroll();
+  if (finished)
+    Overworld_PrimeWideScreenTilemap();
 }
 
 /*
@@ -2629,6 +2801,7 @@ void LoadCachedEntranceProperties() {  // 82e5d4
   main_tile_theme_index = main_tile_theme_index_exit;
   aux_tile_theme_index = aux_tile_theme_index_exit;
   sprite_graphics_index = sprite_graphics_index_exit;
+  Overworld_SetMap16LoadOffsetToCamera();
 
 }
 
@@ -2659,6 +2832,7 @@ void Overworld_EnterSpecialArea() {  // 82e851
   camera_y_coord_scroll_low_spexit = camera_y_coord_scroll_low;
   camera_x_coord_scroll_low_spexit = camera_x_coord_scroll_low;
   overworld_screen_index_spexit = overworld_screen_index;
+  Overworld_SetMap16LoadOffsetToCamera();
   map16_load_src_off_spexit = map16_load_src_off;
   room_scroll_vars0_ystart_spexit = ow_scroll_vars0.ystart;
   room_scroll_vars0_yend_spexit = ow_scroll_vars0.yend;
@@ -2749,6 +2923,7 @@ void LoadOverworldFromSpecialOverworld() {  // 82e9bc
   main_tile_theme_index = main_tile_theme_index_spexit;
   aux_tile_theme_index = aux_tile_theme_index_spexit;
   sprite_graphics_index = sprite_graphics_index_spexit;
+  Overworld_SetMap16LoadOffsetToCamera();
   uint8 sc = overworld_screen_index;
   Overworld_LoadPalettes(kOverworldBgPalettes[sc], overworld_sprite_palettes[sc]);
   Palette_SpecialOw();

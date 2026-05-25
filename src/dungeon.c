@@ -10108,6 +10108,7 @@ void Dungeon_LoadEntrance() {  // 82d8b3
     camera_y_coord_scroll_low_exit = camera_y_coord_scroll_low;
     camera_x_coord_scroll_low_exit = camera_x_coord_scroll_low;
     overworld_screen_index_exit = overworld_screen_index;
+    Overworld_SetMap16LoadOffsetToCamera();
     map16_load_src_off_exit = map16_load_src_off;
     overworld_screen_index = 0;
     overlay_index = 0;

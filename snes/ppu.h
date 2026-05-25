@@ -130,7 +130,6 @@ enum {
   kPpuRenderFlags_NoSpriteLimits = 8,   // Disable 32-sprite / 34-tile per-line limits
 };
 
-
 /*
  * struct Ppu — Complete PPU instance state.
  *
