@@ -62,20 +62,31 @@ include $(DEVKITPRO)/libnx/switch_rules
 #   NACP building is skipped as well.
 #---------------------------------------------------------------------------------
 # Source directory is two levels up because this Makefile lives in src/platform/switch/
-SRC_DIR     := ../..
+SRC_DIR  := $(abspath $(CURDIR)/../..)
+ROOT_DIR := $(abspath $(CURDIR)/../../..)
 TARGET		:=	zelda3
 # BUILD directory for intermediate .o and .d files — matches the /bin entry in .gitignore
 BUILD		:=	bin
 # All source directories that contain compilable code: main game, SNES emulator,
 # OpenGL 3.1 core loader, and the stripped Opus audio decoder for MSU-1 support
-SOURCES		:=  $(SRC_DIR) $(SRC_DIR)/snes $(SRC_DIR)/third_party/gl_core $(SRC_DIR)/third_party/opus-1.3.1-stripped
+SOURCES		:=  $(SRC_DIR) $(SRC_DIR)/snes $(ROOT_DIR)/third_party/gl_core $(ROOT_DIR)/third_party/opus-1.3.1-stripped
 
 # Explicit file list rather than directory wildcard — ensures only the intended .c files
 # are compiled, and third-party amalgam files are included exactly once
-CFILES := $(wildcard $(SRC_DIR)/*.c $(SRC_DIR)/snes/*.c) $(SRC_DIR)/third_party/gl_core/gl_core_3_1.c $(SRC_DIR)/third_party/opus-1.3.1-stripped/opus_decoder_amalgam.c
+CFILES := \
+	$(wildcard $(SRC_DIR)/*.c) \
+	$(wildcard $(SRC_DIR)/../snes/*.c) \
+	$(ROOT_DIR)/third_party/gl_core/gl_core_3_1.c \
+	$(ROOT_DIR)/third_party/opus-1.3.1-stripped/opus_decoder_amalgam.c
+export CFILES
 
 # Header search path — the local include/ dir holds any Switch-specific headers
-INCLUDES	:=	include
+INCLUDES := \
+	$(SRC_DIR) \
+	$(SRC_DIR)/.. \
+	$(SRC_DIR)/../snes \
+	$(ROOT_DIR)/third_party/gl_core \
+	$(ROOT_DIR)/third_party/opus-1.3.1-stripped
 # NACP metadata embedded into the .nro — displayed by the Switch Homebrew Menu
 APP_TITLE   :=  The Legend of Zelda: A Link to the Past
 APP_AUTHOR  :=  snesrev & Lywx
@@ -98,13 +109,18 @@ ARCH	:=	-march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft -fPIE
 #   discard unused functions, reducing the final .nro size
 # -Wno-parentheses: suppress warnings in the original zelda3 code that uses
 #   assignments inside conditionals (a common C pattern in this codebase)
-CFLAGS	:=	-g -Wall -O2 -ffunction-sections -Wno-parentheses \
-			$(ARCH) $(DEFINES)
+CFLAGS := -g -Wall -O2 -ffunction-sections -Wno-parentheses \
+	-I$(SRC_DIR) \
+	-I$(SRC_DIR)/.. \
+	-I$(SRC_DIR)/../snes \
+	-I$(ROOT_DIR)/third_party/gl_core \
+	-I$(ROOT_DIR)/third_party/opus-1.3.1-stripped \
+    $(ARCH) $(DEFINES)
 
 # __SWITCH__ enables platform-specific code paths in the zelda3 source
 # STBI_NO_THREAD_LOCALS disables TLS in stb_image since libnx TLS support is limited
 # sdl2-config provides the correct include paths for the Switch SDL2 port
-CFLAGS	+=	-D__SWITCH__ $(INCLUDE) -DSTBI_NO_THREAD_LOCALS `sdl2-config --cflags`
+CFLAGS += -D__SWITCH__ $(INCLUDE) -DSTBI_NO_THREAD_LOCALS -DSDL_MAIN_HANDLED -include SDL.h `sdl2-config --cflags`
 
 # C++ flags inherit C flags but disable RTTI and exceptions (not used, saves binary size)
 CXXFLAGS	:= $(CFLAGS) -fno-rtti -fno-exceptions
@@ -147,8 +163,10 @@ export TOPDIR	:=	$(CURDIR)
 
 # VPATH tells make where to find source and data files when building from the
 # BUILD subdirectory — allows .o targets to find their .c prerequisites
-export VPATH	:=	$(foreach dir,$(SOURCES),$(CURDIR)/$(dir)) \
-			$(foreach dir,$(DATA),$(CURDIR)/$(dir)) \
+export VPATH := $(SRC_DIR) \
+		$(SRC_DIR)/../snes \
+		$(ROOT_DIR)/third_party/gl_core \
+		$(ROOT_DIR)/third_party/opus-1.3.1-stripped
 
 # Dependency (.d) files are generated alongside .o files in the BUILD directory
 export DEPSDIR	:=	$(CURDIR)/$(BUILD)
@@ -182,9 +200,7 @@ export HFILES_BIN	:=	$(addsuffix .h,$(subst .,_,$(BINFILES)))
 
 # Build the -I include path list from: local includes, library includes, and the
 # BUILD dir (where auto-generated headers from bin2o are placed)
-export INCLUDE	:=	$(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
-			$(foreach dir,$(LIBDIRS),-I$(dir)/include) \
-			-I$(CURDIR)/$(BUILD)
+export INCLUDE := $(foreach dir,$(INCLUDES),-I$(dir))
 
 # Library search paths for the linker (-L flags)
 export LIBPATHS	:=	$(foreach dir,$(LIBDIRS),-L$(dir)/lib)
