@@ -166,7 +166,7 @@ static const uint8 transferLength[8] = {
 static bool Zelda_ShouldRenderWideHudOverlay() {
   if (overworld_map_state == 0 &&
       (main_module_index == 7 || main_module_index == 8 || main_module_index == 9 ||
-       main_module_index == 15))
+       main_module_index == 11 || main_module_index == 15))
     return true;
 
   if (main_module_index != 14)
@@ -184,17 +184,26 @@ static bool Zelda_ShouldRenderWideHudOverlay() {
   return false;
 }
 
+// Gameplay and transition modules keep the vanilla BG3 HUD visible, so BG3
+// needs the same viewport anchor when ExtendedAspectRatio side-space is active.
+static bool Zelda_IsGameplayModuleForBg3Anchor(uint8 module) {
+  return module == 7 || module == 8 || module == 9 || module == 11 || module == 15;
+}
+
 static bool Zelda_ShouldAnchorBg3ToViewport() {
   if (!(enhanced_features0 & kFeatures0_ExtendScreen64) || g_config.extended_aspect_ratio == 0)
     return false;
 
-  if (main_module_index == 14)
+  if (main_module_index == 14) {
+    if (submodule_index == 7 || submodule_index == 10)
+      return overworld_map_state == 0 && Zelda_IsGameplayModuleForBg3Anchor(saved_module_for_menu);
+    if (submodule_index == 4 || submodule_index == 8 || submodule_index == 9)
+      return Zelda_IsGameplayModuleForBg3Anchor(saved_module_for_menu);
     return submodule_index == 1 || submodule_index == 2 || submodule_index == 11 ||
            submodule_index == 12;
+  }
 
-  return overworld_map_state == 0 &&
-      (main_module_index == 7 || main_module_index == 8 || main_module_index == 9 ||
-       main_module_index == 15);
+  return overworld_map_state == 0 && Zelda_IsGameplayModuleForBg3Anchor(main_module_index);
 }
 
 /*
@@ -408,9 +417,10 @@ static void SimpleHdma_DoLine(SimpleHdma *c) {
  * screen), the PPU emulator needs to know how far it can safely draw on
  * each side and below. That distance depends on the current game module:
  *
- *   - Module 9 (overworld): use ow_scroll_vars0 to clamp to the current
- *     screen's bounds, EXCEPT when it's the Mode 7 world map (module 14
- *     submodule 7 stage ≥ 4), where the fixed kPpuExtraLeftRight is safe.
+ *   - Module 9 (overworld) and module 11 (special overworld): use
+ *     ow_scroll_vars0 to clamp to the current screen's bounds, EXCEPT when
+ *     it's the Mode 7 world map (module 14 submodule 7 stage ≥ 4), where the
+ *     fixed kPpuExtraLeftRight is safe.
  *   - Module 7 (indoors): clamp to room_bounds_x/_y for the current
  *     quadrant. The light-cone case (dark room with active lantern)
  *     skips the horizontal clamp because the cone shouldn't see beyond
@@ -434,9 +444,9 @@ static void ConfigurePpuSideSpace() {
   int mod = main_module_index;
   if (mod == 14)
     mod = saved_module_for_menu;
-  else if (mod == 15 || mod == 16)
+  if (mod == 15 || mod == 16)
     mod = player_is_indoors ? 7 : 9;
-  else if (mod == 8 || mod == 10)
+  else if (mod == 8 || mod == 10 || mod == 11)
     mod = 9;
   if (mod == 9) {
     if (main_module_index == 14 && submodule_index == 7 && overworld_map_state >= 4) {

@@ -409,6 +409,16 @@ static inline void ClearBackdrop(PpuPixelPrioBufs *buf) {
     *(uint64*)&buf->data[i] = 0x0500050005000500;
 }
 
+static inline int PpuMosaicBlockStart(Ppu *ppu, int coord) {
+  if ((unsigned)coord < countof(ppu->mosaicModulo))
+    return ppu->mosaicModulo[coord];
+
+  int r = coord % ppu->mosaicSize;
+  if (r < 0)
+    r += ppu->mosaicSize;
+  return coord - r;
+}
+
 
 /*
  * ppu_runLine — Top-level scanline driver. Called once per visible line
@@ -903,7 +913,7 @@ static void PpuDrawBackground_2bpp(Ppu *ppu, uint y, bool sub, uint layer, PpuZb
  * is filled with the top-left pixel of that block. This implementation
  * does it the cheap way:
  *
- *   1. Replace y with `mosaicModulo[y]` so all rows in a mosaic block
+ *   1. Replace y with `PpuMosaicBlockStart(y)` so all rows in a mosaic block
  *      look at the same scanline of tile data — that's why the outer
  *      caller doesn't have to repeat the row.
  *   2. Along X, only sample ONE pixel per block (GET_PIXEL, then the
@@ -928,7 +938,7 @@ static void PpuDrawBackground_4bpp_mosaic(Ppu *ppu, uint y, bool sub, uint layer
   PpuWindows win;
   IS_SCREEN_WINDOWED(ppu, sub, layer) ? PpuWindows_Calc(&win, ppu, layer) : PpuWindows_Clear(&win, ppu, layer);
   BgLayer *bglayer = &ppu->bgLayer[layer];
-  y = ppu->mosaicModulo[y] + bglayer->vScroll;
+  y = PpuMosaicBlockStart(ppu, y) + bglayer->vScroll;
   int sc_offs = bglayer->tilemapAdr + (((y >> 3) & 0x1f) << 5);
   if ((y & 0x100) && bglayer->tilemapHigher)
     sc_offs += bglayer->tilemapWider ? 0x800 : 0x400;
@@ -951,7 +961,8 @@ static void PpuDrawBackground_4bpp_mosaic(Ppu *ppu, uint y, bool sub, uint layer
     const uint16 *tp = tps[x >> 8 & 1] + ((x >> 3) & 0x1f);
     const uint16 *tp_last = tps[x >> 8 & 1] + 31, *tp_next = tps[(x >> 8 & 1) ^ 1];
     x &= 7;
-    int w = ppu->mosaicSize - (sx - ppu->mosaicModulo[sx]);
+    int w = ppu->mosaicSize - (sx - PpuMosaicBlockStart(ppu, sx));
+#define NEXT_TP() if (tp != tp_last) tp += 1; else tp = tp_next, tp_next = tp_last - 31, tp_last = tp + 31
     do {
       w = IntMin(w, dstz_end - dstz);
       uint32 tile = *tp;
@@ -969,10 +980,11 @@ static void PpuDrawBackground_4bpp_mosaic(Ppu *ppu, uint y, bool sub, uint layer
       }
       dstz += w, x += w;
       for (; x >= 8; x -= 8)
-        tp = (tp != tp_last) ? tp + 1 : tp_next;
+        NEXT_TP();
       w = ppu->mosaicSize;
     } while (dstz_end - dstz != 0);
   }
+#undef NEXT_TP
 #undef READ_BITS
 #undef GET_PIXEL
 #undef GET_PIXEL_HFLIP
@@ -996,7 +1008,7 @@ static void PpuDrawBackground_2bpp_mosaic(Ppu *ppu, int y, bool sub, uint layer,
   PpuWindows win;
   IS_SCREEN_WINDOWED(ppu, sub, layer) ? PpuWindows_Calc(&win, ppu, layer) : PpuWindows_Clear(&win, ppu, layer);
   BgLayer *bglayer = &ppu->bgLayer[layer];
-  y = ppu->mosaicModulo[y] + bglayer->vScroll;
+  y = PpuMosaicBlockStart(ppu, y) + bglayer->vScroll;
   int sc_offs = bglayer->tilemapAdr + (((y >> 3) & 0x1f) << 5);
   if ((y & 0x100) && bglayer->tilemapHigher)
     sc_offs += bglayer->tilemapWider ? 0x800 : 0x400;
@@ -1019,7 +1031,8 @@ static void PpuDrawBackground_2bpp_mosaic(Ppu *ppu, int y, bool sub, uint layer,
     const uint16 *tp = tps[x >> 8 & 1] + ((x >> 3) & 0x1f);
     const uint16 *tp_last = tps[x >> 8 & 1] + 31, *tp_next = tps[(x >> 8 & 1) ^ 1];
     x &= 7;
-    int w = ppu->mosaicSize - (sx - ppu->mosaicModulo[sx]);
+    int w = ppu->mosaicSize - (sx - PpuMosaicBlockStart(ppu, sx));
+#define NEXT_TP() if (tp != tp_last) tp += 1; else tp = tp_next, tp_next = tp_last - 31, tp_last = tp + 31
     do {
       w = IntMin(w, dstz_end - dstz);
       uint32 tile = *tp;
@@ -1037,10 +1050,11 @@ static void PpuDrawBackground_2bpp_mosaic(Ppu *ppu, int y, bool sub, uint layer,
       }
       dstz += w, x += w;
       for (; x >= 8; x -= 8)
-        tp = (tp != tp_last) ? tp + 1 : tp_next;
+        NEXT_TP();
       w = ppu->mosaicSize;
     } while (dstz_end - dstz != 0);
   }
+#undef NEXT_TP
 #undef READ_BITS
 #undef GET_PIXEL
 #undef GET_PIXEL_HFLIP
@@ -1177,7 +1191,7 @@ static void PpuDrawBackground_mode7(Ppu *ppu, uint y, bool sub, PpuZbufType z) {
   clippedV = (clippedV & 0x2000) ? (clippedV | ~1023) : (clippedV & 1023);
   bool mosaic_enabled = IS_MOSAIC_ENABLED(ppu, 0);
   if (mosaic_enabled)
-    y = ppu->mosaicModulo[y];
+    y = PpuMosaicBlockStart(ppu, y);
   uint32 ry = ppu->m7yFlip ? 255 - y : y;
   uint32 m7startX = (ppu->m7matrix[0] * clippedH & ~63) + (ppu->m7matrix[1] * ry & ~63) +
     (ppu->m7matrix[1] * clippedV & ~63) + (xCenter << 8);
@@ -1197,7 +1211,7 @@ static void PpuDrawBackground_mode7(Ppu *ppu, uint y, bool sub, PpuZbufType z) {
     uint32 outside_value = ppu->m7largeField ? 0x3ffff : 0xffffffff;
     bool char_fill = ppu->m7charFill;
     if (mosaic_enabled) {
-      int w = ppu->mosaicSize - (x - ppu->mosaicModulo[x]);
+      int w = ppu->mosaicSize - (x - PpuMosaicBlockStart(ppu, x));
       do {
         w = IntMin(w, dstz_end - dstz);
         if ((uint32)(xpos | ypos) > outside_value) {
@@ -2091,7 +2105,7 @@ static void ppu_calculateMode7Starts(Ppu* ppu, int y) {
 // m7largeField (wrap/clip) and m7charFill (use tile 0 or transparent).
 static int ppu_getPixelForMode7(Ppu* ppu, int x, int layer, bool priority) {
   if (IS_MOSAIC_ENABLED(ppu, layer))
-    x -= x % ppu->mosaicSize;
+    x = PpuMosaicBlockStart(ppu, x);
   uint8_t rx = ppu->m7xFlip ? 255 - x : x;
   int xPos = (ppu->m7startX + ppu->m7matrix[0] * rx) >> 8;
   int yPos = (ppu->m7startY + ppu->m7matrix[2] * rx) >> 8;

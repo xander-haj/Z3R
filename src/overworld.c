@@ -1228,10 +1228,11 @@ static void Overworld_SetMap16LoadOffsetToWideCamera() {
   if (kOverworldMapIsSmall[BYTE(overworld_screen_index)]) {
     map16_load_src_off = 0x390;
   } else {
-    int i = overworld_screen_index & 0xbf;
     uint16 x_origin = BG2HOFS_copy2 - Overworld_GetWidescreenExtraLeft();
-    uint16 y = (BG2VOFS_copy2 - kOverworld_OffsetBaseY[i]) & 0x3f0;
-    uint16 x = ((x_origin >> 3) - (kOverworld_OffsetBaseX[i] >> 3)) & 0x7e;
+    /* Special overworld rooms replace the normal area-base tables with
+     * kSpExit_* values, so the wide renderer must follow the live bases. */
+    uint16 y = (BG2VOFS_copy2 - overworld_offset_base_y) & overworld_offset_mask_y;
+    uint16 x = ((x_origin >> 3) - overworld_offset_base_x) & overworld_offset_mask_x;
     map16_load_src_off = ((y << 3) + x + 0x390) & 0x1fff;
   }
   map16_load_var2 = (map16_load_src_off - 0x400 & 0xf80) >> 7;
@@ -1495,9 +1496,9 @@ static void Overworld_RefreshWideCameraTilemap() {
     return;
   }
 
-  int area = overworld_screen_index & 0xbf;
-  uint16 x_origin = ((BG2HOFS_copy2 - extra_left) >> 4) - (kOverworld_OffsetBaseX[area] >> 4);
-  uint16 y_origin = ((BG2VOFS_copy2 - kOverworld_OffsetBaseY[area]) & 0x3f0) >> 4;
+  uint16 x_origin = (((BG2HOFS_copy2 - extra_left) >> 3) - overworld_offset_base_x) &
+      overworld_offset_mask_x;
+  uint16 y_origin = ((BG2VOFS_copy2 - overworld_offset_base_y) & overworld_offset_mask_y) >> 4;
   if (last_origin_valid &&
       last_screen == BYTE(overworld_screen_index) &&
       last_extra_left == extra_left &&
@@ -1909,6 +1910,7 @@ void Module09_FadeBackInFromMosaic() {  // 82b0d2
   case 0: {
     uint8 sc = overworld_screen_index;
     Overworld_LoadPalettes(kOverworldBgPalettes[sc], overworld_sprite_palettes[sc]);
+    Overworld_PrimeWideScreenTilemap();
     OverworldMosaicTransition_LoadSpriteGraphicsAndSetMosaic();
     break;
   }
@@ -1944,6 +1946,7 @@ void Overworld_Func1C() {  // 82b150
   Overworld_ResetMosaicDown();
   switch (subsubmodule_index) {
   case 0:
+    Overworld_PrimeWideScreenTilemap();
     OverworldMosaicTransition_LoadSpriteGraphicsAndSetMosaic();
     break;
   case 1:
@@ -2360,20 +2363,24 @@ void Module09_2A_00_ScrollToLand() {  // 82b532
  *
  * Y-axis loop: walks one pixel at a time over Link's vertical motion,
  * checking the upper/lower scroll-window boundaries and accumulating
- * the camera delta into r4. Then folds r4 into the BG1 vertical scroll
- * (with subpixel precision via BG1VOFS_subpixel) but only when the
- * current overlay does not freeze BG1 (overlay 0x97 / 0x9d). Some
- * overlays scroll BG1 at a different rate — the (oi == 0xb5/0xbe)
- * branches use 4x precision (>>2) for parallax-heavy backgrounds; the
- * others use 2x precision (>>1).
+ * the camera delta into r4. Most overlays fold r4 into BG1 at a
+ * parallax rate (half or quarter speed), while Lost Woods canopy
+ * overlays apply the full camera delta so the fog/tree layer remains
+ * world-locked instead of sliding only while the camera tracks Link.
  *
  * X-axis loop: mirror of the Y loop.
  *
  * Final block applies fixed BG1 offsets for special overlays (0x9c
- * pulls BG1 up by 0x2000; 0x97/0x9d pushes both axes by 0x2000), and
- * a hard-pin to BG2's offsets for dungeon room 0x181 (the Pyramid
- * Crystal Maiden).
+ * pulls BG1 up by 0x2000; 0x97/0x9d pushes both axes by 0x2000 for
+ * the subtle Lost Woods drift), and a hard-pin to BG2's offsets for
+ * dungeon room 0x181 (the Pyramid Crystal Maiden).
  */
+// Identifies the forest overlay variants whose BG1 canopy must stay locked to
+// BG2 camera movement; the separate subpixel drift still runs afterward.
+static bool Overworld_IsLostWoodsCanopyOverlay(uint8 oi) {
+  return oi == 0x97 || oi == 0x9d || oi == 0x9e;
+}
+
 void Overworld_OperateCameraScroll() {  // 82bb90
   int z = (allow_scroll_z && link_z_coord != 0xffff) ? link_z_coord : 0;
   uint16 y = link_y_coord - z + 12;
@@ -2393,7 +2400,9 @@ void Overworld_OperateCameraScroll() {  // 82bb90
     } while (--av);
     WORD(byte_7E069E[0]) = r4;
     uint8 oi = BYTE(overlay_index);
-    if (oi != 0x97 && oi != 0x9d && r4 != 0) {
+    if (Overworld_IsLostWoodsCanopyOverlay(oi) && r4 != 0) {
+      BG1VOFS_copy2 += r4;
+    } else if (r4 != 0) {
       if (oi == 0xb5 || oi == 0xbe) {
         subp = (r4 & 3) << 14;
         r4 >>= 2;
@@ -2434,7 +2443,9 @@ void Overworld_OperateCameraScroll() {  // 82bb90
     } while (--ax);
     WORD(byte_7E069E[1]) = r4;
     uint8 oi = BYTE(overlay_index);
-    if (oi != 0x97 && oi != 0x9d && r4 != 0) {
+    if (Overworld_IsLostWoodsCanopyOverlay(oi) && r4 != 0) {
+      BG1HOFS_copy2 += r4;
+    } else if (r4 != 0) {
       if (oi == 0x95 || oi == 0x9e) {
         subp = (r4 & 3) << 14;
         r4 >>= 2;
@@ -2637,6 +2648,12 @@ void Overworld_Func1F() {  // 82c2a4
     subsubmodule_index = submodule_index = 0;
   }
   Overworld_OperateCameraScroll();
+  if (BYTE(overworld_screen_trans_dir_bits2))
+    OverworldHandleMapScroll();
+  if (main_module_index == 9 && submodule_index == 0)
+    Overworld_PrimeWideScreenTilemap();
+  else
+    Overworld_RefreshWideCameraTilemap();
 }
 
 /*

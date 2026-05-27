@@ -2356,13 +2356,27 @@ void Sprite_Func22(int k) {  // 86e0f6
   sprite_flags2[k] = 3;
 }
 
+// Returns true while Lost Woods throwable terrain is airborne. Its center
+// terrain probe can see the overhead canopy as solid before the normal landing
+// code has a chance to finish the throw, so only suppress that false tile hit
+// while Z height says the object is still in flight.
+static bool ThrowableScenery_ShouldSkipLostWoodsAirborneCollision(int k) {
+  return sprite_type[k] == 0xec && !player_is_indoors && sprite_z[k] &&
+         (BYTE(overlay_index) == 0x97 || BYTE(overlay_index) == 0x9d ||
+          BYTE(overlay_index) == 0x9e);
+}
+
 // Moves a throwable terrain tile (type 0xEC) one frame: applies X/Y velocity,
 // runs tile collision if not hookshot-lifted (sprite_E == 0), then calls
 // ThrownSprite_TileAndSpriteInteraction to handle wall bounces and sprite hits.
 void ThrowableScenery_InteractWithSpritesAndTiles(int k) {  // 86e164
   Sprite_MoveXY(k);
-  if (!sprite_E[k])
-    Sprite_CheckTileCollision(k);
+  if (!sprite_E[k]) {
+    if (ThrowableScenery_ShouldSkipLostWoodsAirborneCollision(k))
+      sprite_wallcoll[k] = 0;
+    else
+      Sprite_CheckTileCollision(k);
+  }
   ThrownSprite_TileAndSpriteInteraction(k);
 }
 

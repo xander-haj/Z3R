@@ -241,7 +241,7 @@ struct Ppu {
   uint8_t brightnessMult[32 + 31]; // Brightness LUT (31 extra entries avoid clamping)
   uint8_t brightnessMultHalf[32 * 2]; // Half-brightness LUT for half-color math
   uint16_t cgram[0x100];  // Color Generator RAM: 256 palette entries (15-bit BGR)
-  uint8_t mosaicModulo[kPpuXPixels]; // Precomputed mosaic column grouping per pixel
+  int16_t mosaicModulo[kPpuXPixels]; // Precomputed mosaic column grouping per pixel
   uint32_t colorMapRgb[256]; // Palette mapped to output RGB format (after brightness)
   PpuPixelPrioBufs bgBuffers[2]; // Scanline render buffers for background layers
   PpuPixelPrioBufs objBuffer;    // Scanline render buffer for sprites

@@ -1369,6 +1369,9 @@ static const NewSettingsFeatureRow kNewSettingsControlFeatures[] = {
   { "ITEMSWITCHLR LIMIT", "ItemSwitchLRLimit", kFeatures0_SwitchLRLimit },
 };
 
+static const NewSettingsFeatureRow kNewSettingsRearrangeHudFeature =
+  { "REARRANGE HUD", "RearrangeHUD", kFeatures0_RearrangeHud };
+
 static const NewSettingsFeatureRow kNewSettingsGameplayFeatures[] = {
   { "TURN WHILE DASHING", "TurnWhileDashing", kFeatures0_TurnWhileDashing },
   { "MIRROR TO DARK WORLD", "MirrorToDarkworld", kFeatures0_MirrorToDarkworld },
@@ -1613,20 +1616,23 @@ static void NewSettings_InitStagedAspect() {
   g_new_settings_aspect_dirty = false;
 }
 
-static const char *NewSettings_AspectLabel(uint8 aspect_ratio) {
+static int NewSettings_AspectIndex(uint8 aspect_ratio) {
   if (aspect_ratio == 0)
-    return "4:3";
-  if (aspect_ratio <= 50)
-    return "16:10";
-  if (aspect_ratio <= 75)
-    return "16:9";
-  return "18:9";
+    return 0;
+  if (aspect_ratio <= 67)
+    return 1;
+  if (aspect_ratio <= 90)
+    return 2;
+  return 3;
+}
+
+static const char *NewSettings_AspectLabel(uint8 aspect_ratio) {
+  static const char *const labels[] = { "4:3", "16:10", "16:9", "18:9" };
+  return labels[NewSettings_AspectIndex(aspect_ratio)];
 }
 
 static void NewSettings_WriteAspectValue(uint8 aspect_ratio, bool extend_y) {
-  const char *aspect = aspect_ratio == 0 ? "4:3" :
-                       aspect_ratio <= 50 ? "16:10" :
-                       aspect_ratio <= 75 ? "16:9" : "18:9";
+  const char *aspect = NewSettings_AspectLabel(aspect_ratio);
   char tmp[80];
   snprintf(tmp, sizeof(tmp), "%s%s", extend_y ? "extend_y, " : "", aspect);
   NewSettings_WriteIniValue("General", "ExtendedAspectRatio", tmp);
@@ -1634,9 +1640,7 @@ static void NewSettings_WriteAspectValue(uint8 aspect_ratio, bool extend_y) {
 
 static void NewSettings_SetAspect(int step) {
   static const uint8 values[] = { 0, 51, 71, 96 };
-  int idx = 0;
-  if (g_new_settings_aspect_ratio != 0)
-    idx = g_new_settings_aspect_ratio <= 50 ? 1 : g_new_settings_aspect_ratio <= 75 ? 2 : 3;
+  int idx = NewSettings_AspectIndex(g_new_settings_aspect_ratio);
   idx = (idx + step + 4) & 3;
   g_new_settings_aspect_ratio = values[idx];
   g_new_settings_aspect_dirty = true;
@@ -1905,11 +1909,18 @@ static void NewSettings_DrawSound() {
 }
 
 static void NewSettings_DrawFeatures() {
-  static const char *items[] = { "BACK TO HOME", "CONTROL ENHANCE", "HUD SHADOW", "HUD", "GAMEPLAY ENHANCE" };
+  static const char *items[] = {
+    "BACK TO HOME", "CONTROL ENHANCE", "REARRANGE HUD", "HUD SHADOW", "HUD POSITIONS", "GAMEPLAY ENHANCE",
+  };
   NewSettings_DrawShell("FEATURES");
   for (int i = 0; i < countof(items); i++) {
+    if (i == 2) {
+      bool enabled = (g_config.features0 & kFeatures0_RearrangeHud) != 0;
+      NewSettings_DrawBoolRow(uvram_screen.row[0].col, i, g_new_settings_cursor == i, items[i], enabled);
+      continue;
+    }
     NewSettings_DrawRow(uvram_screen.row[0].col, i, g_new_settings_cursor == i, items[i], NULL);
-    if (i == 2)
+    if (i == 3)
       NewSettings_DrawNumber(uvram_screen.row[0].col, 25, 8 + i * 2, g_config.hud_shadow_size);
   }
 }
@@ -2022,7 +2033,7 @@ static int NewSettings_RowCount() {
   case kNewSettingsPage_General: return 5;
   case kNewSettingsPage_Graphics: return 6;
   case kNewSettingsPage_Sound: return 4;
-  case kNewSettingsPage_Features: return 5;
+  case kNewSettingsPage_Features: return 6;
   case kNewSettingsPage_FeatureControls: return 1 + countof(kNewSettingsControlFeatures);
   case kNewSettingsPage_FeatureHud: return 1 + countof(kNewSettingsHudRows);
   case kNewSettingsPage_FeatureGameplay: return 1 + countof(kNewSettingsGameplayFeatures);
@@ -2091,8 +2102,9 @@ static void NewSettings_HandleActivate() {
   case kNewSettingsPage_Features:
     if (g_new_settings_cursor == 0) NewSettings_Goto(kNewSettingsPage_Home, kNewSettingsPage_Home);
     else if (g_new_settings_cursor == 1) NewSettings_Goto(kNewSettingsPage_FeatureControls, kNewSettingsPage_Features);
-    else if (g_new_settings_cursor == 3) NewSettings_Goto(kNewSettingsPage_FeatureHud, kNewSettingsPage_Features);
-    else if (g_new_settings_cursor == 4) NewSettings_Goto(kNewSettingsPage_FeatureGameplay, kNewSettingsPage_Features);
+    else if (g_new_settings_cursor == 2) NewSettings_ToggleFeature(&kNewSettingsRearrangeHudFeature);
+    else if (g_new_settings_cursor == 4) NewSettings_Goto(kNewSettingsPage_FeatureHud, kNewSettingsPage_Features);
+    else if (g_new_settings_cursor == 5) NewSettings_Goto(kNewSettingsPage_FeatureGameplay, kNewSettingsPage_Features);
     break;
   case kNewSettingsPage_FeatureControls:
     if (g_new_settings_cursor == 0) NewSettings_Goto(kNewSettingsPage_Features, kNewSettingsPage_Home);
@@ -2173,6 +2185,8 @@ static void NewSettings_HandleChange(int delta) {
     else if (g_new_settings_cursor == 3) NewSettings_ToggleBool("Sound", "ResumeMSU", &g_config.resume_msu);
   } else if (g_new_settings_page == kNewSettingsPage_Features) {
     if (g_new_settings_cursor == 2)
+      NewSettings_ToggleFeature(&kNewSettingsRearrangeHudFeature);
+    else if (g_new_settings_cursor == 3)
       NewSettings_AdjustInt("Features", "HUDShadowSize", &g_config.hud_shadow_size, delta, 0, 16);
   } else if (g_new_settings_page == kNewSettingsPage_FeatureHud && g_new_settings_cursor != 0) {
     NewSettingsHudRow *item = &kNewSettingsHudRows[g_new_settings_cursor - 1];

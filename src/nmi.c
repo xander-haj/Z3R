@@ -387,7 +387,8 @@ void NMI_ReadJoypads(uint16 joypad_input) {  // 8083d1
 
 static bool NMI_ShouldBlankLegacyHudForWideOverlay() {
   if (main_module_index == 7 || main_module_index == 8 || main_module_index == 9 ||
-      main_module_index == 15 || main_module_index == 17 || main_module_index == 18)
+      main_module_index == 11 || main_module_index == 15 ||
+      main_module_index == 17 || main_module_index == 18)
     return true;
 
   if (main_module_index != 14)
@@ -397,12 +398,14 @@ static bool NMI_ShouldBlankLegacyHudForWideOverlay() {
    * while gameplay text is active or stale top-strip entries turn into readable garbage. */
   if (submodule_index == 2)
     return saved_module_for_menu == 7 || saved_module_for_menu == 8 ||
-           saved_module_for_menu == 9 || saved_module_for_menu == 15 ||
+           saved_module_for_menu == 9 || saved_module_for_menu == 11 ||
+           saved_module_for_menu == 15 ||
            saved_module_for_menu == 17;
 
   if (submodule_index == 11)
     return saved_module_for_menu == 7 || saved_module_for_menu == 8 ||
-           saved_module_for_menu == 9 || saved_module_for_menu == 15 ||
+           saved_module_for_menu == 9 || saved_module_for_menu == 11 ||
+           saved_module_for_menu == 15 ||
            saved_module_for_menu == 17;
 
   if (submodule_index == 1)
