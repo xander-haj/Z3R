@@ -1,6 +1,7 @@
 # Discord Server
 https://discord.gg/EQ6E7P3cC8
 
+**Do Not Include Z3R in any projects, unless you have contributed to the codebase**
 # Z3R
 
 Z3R is a fork of the `zelda3` C reimplementation By SnesRev this project's widescreen,
